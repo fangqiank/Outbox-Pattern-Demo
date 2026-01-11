@@ -57,10 +57,10 @@ namespace OutboxPatternDemo.API.Caching
             async (cancellationToken) =>
             {
                 var pendingCount = await context.OutboxMessages
-                    .CountAsync(m => m.Status == OutboxMessageStatus.Pending);
+                    .CountAsync(m => m.Status == OutboxMessageStatus.Pending, cancellationToken: cancellationToken);
 
                 var failedCount = await context.OutboxMessages
-                    .CountAsync(m => m.Status == OutboxMessageStatus.Failed);
+                    .CountAsync(m => m.Status == OutboxMessageStatus.Failed, cancellationToken: cancellationToken);
 
                 return new OutboxStats(pendingCount, failedCount);
             },
@@ -97,7 +97,7 @@ namespace OutboxPatternDemo.API.Caching
                     var alreadyProcessed = await cache.GetOrCreateAsync(
                         processedCacheKey,
                         async (ct) => false, // 默认未处理
-                        TimeSpan.FromHours(24));
+                        TimeSpan.FromHours(24), stoppingToken);
 
                     if (alreadyProcessed)
                     {
@@ -120,7 +120,7 @@ namespace OutboxPatternDemo.API.Caching
                         await repository.UpdateAsync(message);
 
                         // 缓存处理状态（24小时）
-                        await cache.SetAsync(processedCacheKey, true, TimeSpan.FromHours(24));
+                        await cache.SetAsync(processedCacheKey, true, TimeSpan.FromHours(24), stoppingToken);
 
                         // 根据消息类型处理缓存
                         await HandleMessageCacheUpdatesAsync(cache, message);

@@ -11,9 +11,9 @@ public class ConnectionProvider(
 {
     private readonly RabbitMQOptions _options = options.Value;
     private IConnection? _connection;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
-    public async Task<IConnection> GetConnectionAsync(CancellationToken cancellationToken = default)
+    private async Task<IConnection> GetConnectionAsync(CancellationToken cancellationToken = default)
     {
         if (_connection is { IsOpen: true })
         {
@@ -47,14 +47,14 @@ public class ConnectionProvider(
     public async Task<IChannel> CreateChannelAsync(CancellationToken cancellationToken = default)
     {
         var connection = await GetConnectionAsync(cancellationToken);
-        var channel = await connection.CreateChannelAsync();
+        var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
 
         // 声明交换机
         await channel.ExchangeDeclareAsync(
             exchange: _options.ExchangeName,
             type: _options.ExchangeType,
             durable: true,
-            autoDelete: false);
+            autoDelete: false, cancellationToken: cancellationToken);
 
         return channel;
     }

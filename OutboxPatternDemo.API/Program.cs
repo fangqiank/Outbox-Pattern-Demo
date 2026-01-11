@@ -27,6 +27,7 @@ builder.Services.AddHybridCaching(builder.Configuration);
 // 配置 RabbitMQ
 builder.Services.Configure<RabbitMQOptions>(
     builder.Configuration.GetSection(RabbitMQOptions.SectionName));
+
 builder.Services.AddSingleton<ConnectionProvider>();
 
 builder.Services.AddScoped<IOutboxMessageRepository, OutboxMessageRepository>();

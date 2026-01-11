@@ -46,7 +46,7 @@ namespace OutboxPatternDemo.Services
             foreach (var message in pendingMessages)
             {
                 try
-            {
+                {
                     // 标记为处理中（防止并发处理）
                     message.MarkAsProcessing();
                     await repository.UpdateAsync(message);
@@ -80,8 +80,8 @@ namespace OutboxPatternDemo.Services
 
                         message.MarkAsFailed(ex.Message);
                         await repository.UpdateAsync(message);
-                    }
                 }
+            }
         }
     }
 }
