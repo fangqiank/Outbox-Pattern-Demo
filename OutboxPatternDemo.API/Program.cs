@@ -1,41 +1,28 @@
-using Microsoft.EntityFrameworkCore;
-using OutboxPatternDemo.API.Caching;
-using OutboxPatternDemo.Domain;
+using OutboxPatternDemo.API.Endpoints;
+using OutboxPatternDemo.API.Extensions;
 using OutboxPatternDemo.Infrastructure.Data;
-using OutboxPatternDemo.Infrastructure.Repositories;
-using OutboxPatternDemo.Services;
-using OutboxPatternDemo.Services.RabbitMQ;
 using Scalar.AspNetCore;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// 框架服务
 builder.Services.AddOpenApi();
 
-builder.Services.AddDbContext<AppDbContext>(options =>
+// JSON 配置：枚举序列化为字符串
+builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
 {
-    //options.UseInMemoryDatabase("OutboxPatternDemo");
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
 
-// 配置缓存
-builder.Services.AddHybridCaching(builder.Configuration);
+// Controller JSON 配置（兼容 Controllers）
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
-// 配置 RabbitMQ
-builder.Services.Configure<RabbitMQOptions>(
-    builder.Configuration.GetSection(RabbitMQOptions.SectionName));
-
-builder.Services.AddSingleton<ConnectionProvider>();
-
-builder.Services.AddScoped<IOutboxMessageRepository, OutboxMessageRepository>();
-builder.Services.AddScoped<IOrderService, CacheAwareOrderService>();
-builder.Services.AddScoped<IMessagePublisher, RabbitMQMessagePublisher>();
-
-builder.Services.AddHostedService<CacheAwareOutboxProcessor>();
-builder.Services.AddHostedService<OrderEventConsumer>();
+// 应用服务（DI 扩展）
+builder.Services.AddServices(builder.Configuration);
 
 var app = builder.Build();
 
@@ -47,11 +34,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+//app.UseAuthorization();
 
-app.UseAuthorization();
+// Minimal API 端点
+app.MapOrdersEndpoints();
 
-app.MapControllers();
-
+// 确保数据库创建
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();

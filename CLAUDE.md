@@ -111,3 +111,139 @@ Scalar API 文档在开发环境可用：`/scalar`
 ```csharp
 await cache.GetOrCreateAsync(key, factory, TimeSpan.FromMinutes(10));
 ```
+
+## RabbitMQ 集成
+
+### Exchange（交换机）
+
+Exchange 是 RabbitMQ 中负责**接收消息并路由到队列**的核心组件。
+
+**消息流转过程：**
+```
+Publisher → Exchange → Queue → Consumer
+           (路由规则)
+```
+
+Publisher 不直接发送消息到队列，而是发送到 Exchange，Exchange 根据路由规则将消息分发到绑定的队列。
+
+**Exchange 类型：**
+
+| 类型 | 说明 | 路由键匹配 |
+|------|------|-----------|
+| **Direct** | 精确匹配 | 完全相同 |
+| **Topic** | 通配符匹配 | `*` 单单词, `#` 多单词 |
+| **Fanout** | 广播，忽略路由键 | 发送到所有绑定队列 |
+| **Headers** | 根据消息头匹配 | 很少使用 |
+
+**本项目配置：**
+
+```json
+"RabbitMQ": {
+  "ExchangeName": "outbox.exchange",
+  "ExchangeType": "topic"    // 使用 Topic 类型
+}
+```
+
+**路由规则：**
+```
+outbox.exchange (topic)
+    │
+    ├─ ordercreated       → order.events.queue
+    ├─ orderstatusupdated → order.events.queue
+    └─ orderdeleted       → order.events.queue
+```
+
+**Publisher 发送消息**（见 `RabbitMQMessagePublisher.cs`）：
+```csharp
+await channel.BasicPublishAsync(
+    exchange: "outbox.exchange",
+    routingKey: "ordercreated",  // 路由键
+    body: messageBody
+);
+```
+
+**Consumer 绑定队列**（见 `OrderEventConsumer.cs`）：
+```csharp
+await channel.QueueBindAsync(
+    queue: "order.events.queue",
+    exchange: "outbox.exchange",
+    routingKey: "ordercreated"     // 绑定此路由键
+);
+```
+
+**Topic Exchange 匹配示例：**
+
+| Routing Key | 绑定模式 | 是否匹配 |
+|-------------|----------|----------|
+| `order.created` | `order.*` | ✓ |
+| `order.created` | `#.created` | ✓ |
+| `order.created` | `order.created` | ✓ |
+| `order.created` | `order.updated` | ✗ |
+
+### Consumer 类型
+
+项目提供两种 Consumer，通过配置切换：
+
+| Consumer | 队列名称 | 日志级别 | 使用场景 |
+|----------|----------|----------|----------|
+| `OrderEventConsumer` | `order.events.queue` | 详细（显示 RabbitMQ 消费过程） | 生产环境 |
+| `SimpleOrderEventConsumer` | `order.events.simple.queue` | 简化（仅业务日志） | 开发/测试 |
+
+**切换方式：**
+```json
+"ConsumerSettings": {
+  "EnableSimpleConsumer": false   // true=Simple, false=Full
+}
+```
+
+### Consumer 日志示例
+
+**启动时：**
+```
+========================================
+RabbitMQ 订单事件消费者启动中...
+Exchange: outbox.exchange
+Queue: order.events.queue
+Consumer Tag: order-event-consumer-v1
+========================================
+[RabbitMQ Consumer] Channel #1 已创建
+[RabbitMQ Consumer] 队列已声明: order.events.queue (消息数: 0, 消费者数: 0)
+[RabbitMQ Consumer] 队列绑定: order.events.queue <- ordercreated (@outbox.exchange)
+[RabbitMQ Consumer] QoS 设置: PrefetchCount=10
+[RabbitMQ Consumer] 开始消费消息 (AutoAck: False, 手动确认模式)
+```
+
+**收到消息时：**
+```
+----------------------------------------
+[RabbitMQ Consumer] 收到消息 (DeliveryTag: 1)
+  Exchange: outbox.exchange, RoutingKey: ordercreated
+  ConsumerTag: order-event-consumer-v1
+  Redelivered: False
+  MessageId: xxx-xxx-xxx
+  ContentType: application/json
+  DeliveryMode: 2 (持久化)
+  BodySize: xxx bytes
+  Message: {"OrderId":"...","CustomerName":"..."}
+  [订单创建事件] ID=xxx, Customer=xxx, Amount=¥xxx
+  [业务处理] 发送欢迎邮件、更新订单统计...
+[RabbitMQ Consumer] 消息已确认 (BasicAck DeliveryTag: 1) - 耗时: 5ms ✓
+----------------------------------------
+```
+
+### 关键概念
+
+**DeliveryTag**：每条消息的唯一递增序号，用于 ACK/NACK 确认
+
+**ConsumerTag**：消费者的标识符，用于区分不同的消费者实例
+
+**PrefetchCount (QoS)**：控制 RabbitMQ 一次推送多少条消息给消费者，防止消费者被压垮
+
+**AutoAck**：
+- `false`：手动确认模式（推荐），处理成功后调用 `BasicAck`
+- `true`：自动确认模式，消息发送后立即确认（可能丢失消息）
+
+**BasicAck vs BasicNack**：
+- `BasicAck`：确认消息处理成功
+- `BasicNack(requeue: true)`：处理失败，消息重新入队
+- `BasicNack(requeue: false)`：处理失败，消息丢弃（或进入死信队列）

@@ -123,6 +123,8 @@ namespace OutboxPatternDemo.API.Controllers
         [HttpGet("cache/stats")]
         public async Task<IActionResult> GetCacheStats()
         {
+            var memoryInfo = GC.GetGCMemoryInfo();
+
             var stats = new
             {
                 HybridCacheEnabled = true,
@@ -130,7 +132,16 @@ namespace OutboxPatternDemo.API.Controllers
                     HttpContext.RequestServices.GetService<IConfiguration>()?
                         .GetConnectionString("Redis")),
                 Timestamp = DateTime.UtcNow,
-                MemoryInfo = GC.GetGCMemoryInfo()
+                Memory = new
+                {
+                    TotalMemory = GC.GetTotalMemory(false),
+                    Gen0Collections = GC.CollectionCount(0),
+                    Gen1Collections = GC.CollectionCount(1),
+                    Gen2Collections = GC.CollectionCount(2),
+                    MemoryLoadBytes = memoryInfo.MemoryLoadBytes,
+                    HighMemoryLoadThresholdBytes = memoryInfo.HighMemoryLoadThresholdBytes,
+                    FragmentedBytes = memoryInfo.FragmentedBytes
+                }
             };
 
             return Ok(stats);
